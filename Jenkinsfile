@@ -96,7 +96,7 @@ spec:
                         apk add --no-cache \
                             aws-cli git curl wget \
                             gcc musl-dev python3-dev linux-headers \
-                            docker-cli
+                            docker-cli kubectl
 
                         pip install --no-cache-dir -r app/requirements.txt
                         echo "✅ System tools and Python dependencies installed"
