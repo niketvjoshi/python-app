@@ -62,7 +62,7 @@ spec:
         TAG             = "${params.IMAGE_TAG ?: "${env.BUILD_NUMBER}-${SHORT_SHA}"}"
 
         // GitOps Repository Configuration
-        MANIFESTS_REPO   = 'https://github.com/YOUR_ORG/nodejs-app-manifests.git'
+        MANIFESTS_REPO   = 'https://github.com/niketvjoshi/python-app-manifests'
         MANIFESTS_BRANCH = 'main'
         HELM_CHART_PATH  = 'helm/python-app'
         APP_NAME         = 'python-app'
