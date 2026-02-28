@@ -11,10 +11,6 @@ metadata:
 spec:
   serviceAccountName: jenkins   # Uses Pod Identity for AWS auth - no hardcoded keys
 
-  # Run on managed node group, not spot (Jenkins agents should be stable)
-  nodeSelector:
-    eks.amazonaws.com/nodegroup: private-nodes
-
   containers:
     # Docker-in-Docker for building images
     - name: dind
