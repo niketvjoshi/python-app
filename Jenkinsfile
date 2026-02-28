@@ -222,6 +222,8 @@ spec:
             steps {
                 container('tools') {
                     sh '''
+                        echo "Waiting 30s for ArgoCD to detect Git change..."
+                        sleep 30
                         echo "Verifying deployment health..."
                         # Wait for Kubernetes to pull the new image and stabilize
                         kubectl rollout status deployment/${APP_NAME} -n python-app --timeout=300s
