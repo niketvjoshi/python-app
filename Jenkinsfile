@@ -14,7 +14,7 @@ spec:
   containers:
     # Docker-in-Docker for building images
     - name: dind
-      image: docker:29-dind
+      image: docker:24-dind
       securityContext:
         privileged: true
       env:
@@ -114,8 +114,10 @@ spec:
             steps {
                 container('tools') {
                     sh '''
-                        # Install AWS CLI and tools
-                        apk add --no-cache aws-cli git curl wget
+                        # Install build tools required for psutil and other C extensions
+                        apk add --no-cache \
+                            aws-cli git curl wget \
+                            gcc musl-dev python3-dev linux-headers
 
                         # Install Python dependencies
                         pip install --no-cache-dir -r app/requirements.txt
@@ -383,13 +385,19 @@ spec:
         }
 
         always {
-            container('tools') {
-                sh '''
-                    # Cleanup local Docker images to save disk space
-                    docker rmi ${ECR_REPO}:${TAG} || true
-                    docker rmi ${ECR_REPO}:latest || true
-                    docker system prune -f || true
-                '''
+            script {
+                // Cleanup Docker images - wrapped in try/catch so post never fails
+                try {
+                    container('dind') {
+                        sh '''
+                            docker rmi ${ECR_REPO}:${TAG} || true
+                            docker rmi ${ECR_REPO}:latest || true
+                            docker system prune -f || true
+                        '''
+                    }
+                } catch (Exception e) {
+                    echo "Docker cleanup skipped: ${e.message}"
+                }
             }
         }
     }
