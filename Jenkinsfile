@@ -179,7 +179,8 @@ spec:
                             git config user.name "Jenkins CI"
 
                             #yq e ".image.tag = \\"${TAG}\\"" -i ${HELM_CHART_PATH}/values.yaml
-                            yq e ".image.tag = \"${TAG}\"" -i ${HELM_CHART_PATH}/values.yaml
+                            #yq e ".image.tag = \"${TAG}\"" -i ${HELM_CHART_PATH}/values.yaml
+                            sed -i "s|^  tag:.*|  tag: \"${TAG}\"|" ${HELM_CHART_PATH}/values.yaml
                             
                             git add .
                             git commit -m "chore: update ${APP_NAME} to ${TAG} [skip ci]"
