@@ -197,7 +197,7 @@ spec:
                             sed -i "s|^  tag:.*|  tag: \\"${TAG}\\"|" values.yaml
 
                             echo "Verified Change in values.yaml:"
-                            grep "tag:" ${HELM_CHART_PATH}/values.yaml
+                            grep "tag:" values.yaml
 
                             # Commit and Push
                             git add .
