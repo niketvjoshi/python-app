@@ -182,7 +182,7 @@ spec:
             }
             steps {
                 container('tools') {
-                    withCredentials([usernamePassword(credentialsId: 'github-credentials', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
+                    withCredentials([usernamePassword(credentialsId: 'github-token-niket', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
                         sh '''
                             # Clone Manifests Repo
                             rm -rf manifests
