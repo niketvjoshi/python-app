@@ -194,7 +194,7 @@ spec:
 
                             # SED FIX: Dynamically update the tag line in values.yaml
                             # Matches "  tag: " at the start of the line and replaces everything after
-                            sed -i "s|^  tag:.*|  tag: \\"${TAG}\\"|" ${HELM_CHART_PATH}/values.yaml
+                            sed -i "s|^  tag:.*|  tag: \\"${TAG}\\"|" values.yaml
 
                             echo "Verified Change in values.yaml:"
                             grep "tag:" ${HELM_CHART_PATH}/values.yaml
