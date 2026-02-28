@@ -14,7 +14,7 @@ spec:
   containers:
     # Docker-in-Docker for building images
     - name: dind
-      image: docker:24-dind
+      image: docker:29-dind
       securityContext:
         privileged: true
       env:
