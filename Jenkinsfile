@@ -11,7 +11,7 @@ metadata:
 spec:
   serviceAccountName: jenkins
   containers:
-    # Docker-in-Docker sidecar
+    # Docker-in-Docker sidecar for building images
     - name: dind
       image: docker:29-dind
       securityContext:
@@ -23,7 +23,7 @@ spec:
         - name: docker-storage
           mountPath: /var/lib/docker
 
-    # Main build container (Client)
+    # Main build container with required tools
     - name: tools
       image: python:3.12-alpine
       command: [cat]
@@ -44,29 +44,32 @@ spec:
         }
     }
 
+    // ── Parameters ─────────────────────────────────────────────────────────
     parameters {
         string(name: 'IMAGE_TAG', defaultValue: '', description: 'Override image tag (leave empty to auto-generate)')
-        booleanParam(name: 'SKIP_TESTS', defaultValue: false, description: 'Skip tests and linting')
-        booleanParam(name: 'DRY_RUN', defaultValue: false, description: 'Build but do not push/deploy')
+        booleanParam(name: 'SKIP_TESTS', defaultValue: false, description: 'Skip unit tests and linting')
+        booleanParam(name: 'DRY_RUN', defaultValue: false, description: 'Build but do not push or deploy')
     }
 
+    // ── Environment Variables ───────────────────────────────────────────────
     environment {
         AWS_REGION      = 'ap-south-1'
         AWS_ACCOUNT_ID  = '196549506578'
         ECR_REPO        = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/python-app"
-        
-        // Fixed Tag Logic
-        SHORT_SHA       = "${env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'no-git'}"
+
+        // Handle Tag generation safely
+        SHORT_SHA       = "${env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'unknown'}"
         TAG             = "${params.IMAGE_TAG ?: "${env.BUILD_NUMBER}-${SHORT_SHA}"}"
 
-        MANIFESTS_REPO  = 'https://github.com/YOUR_ORG/nodejs-app-manifests.git'
+        // GitOps Repository Configuration
+        MANIFESTS_REPO   = 'https://github.com/YOUR_ORG/nodejs-app-manifests.git'
         MANIFESTS_BRANCH = 'main'
-        HELM_CHART_PATH = 'helm/python-app'
-        APP_NAME        = 'python-app'
+        HELM_CHART_PATH  = 'helm/python-app'
+        APP_NAME         = 'python-app'
     }
 
     options {
-        timeout(time: 45, unit: 'MINUTES')
+        timeout(time: 30, unit: 'MINUTES')
         buildDiscarder(logRotator(numToKeepStr: '10'))
         disableConcurrentBuilds()
     }
@@ -76,8 +79,10 @@ spec:
             steps {
                 container('tools') {
                     script {
-                        echo "🚀 Starting Build for ${APP_NAME}"
-                        echo "Image Tag: ${TAG}"
+                        echo "🚀 Starting Build: ${env.BUILD_NUMBER}"
+                        echo "Branch Name: ${env.BRANCH_NAME ?: 'Not Set'}"
+                        echo "Git Branch:  ${env.GIT_BRANCH ?: 'Not Set'}"
+                        echo "Final Tag:   ${env.TAG}"
                     }
                 }
             }
@@ -87,14 +92,20 @@ spec:
             steps {
                 container('tools') {
                     sh '''
-                        apk add --no-cache aws-cli git curl wget gcc musl-dev python3-dev linux-headers docker-cli
+                        # Install build tools, Docker CLI, and AWS CLI
+                        apk add --no-cache \
+                            aws-cli git curl wget \
+                            gcc musl-dev python3-dev linux-headers \
+                            docker-cli
+
                         pip install --no-cache-dir -r app/requirements.txt
+                        echo "✅ System tools and Python dependencies installed"
                     '''
                 }
             }
         }
 
-        stage('Tests & Quality') {
+        stage('Tests & Linting') {
             when { expression { !params.SKIP_TESTS } }
             parallel {
                 stage('Unit Tests') {
@@ -108,7 +119,7 @@ spec:
                         }
                     }
                 }
-                stage('Linting') {
+                stage('Code Quality') {
                     steps {
                         container('tools') {
                             sh '''
@@ -125,19 +136,17 @@ spec:
             steps {
                 container('tools') {
                     sh '''
-                        # Wait for DinD to be ready
-                        MAX_RETRIES=30
-                        COUNT=0
-                        until docker info > /dev/null 2>&1 || [ $COUNT -eq $MAX_RETRIES ]; do
-                            echo "Waiting for Docker daemon... ($COUNT/$MAX_RETRIES)"
+                        # Ensure Docker Daemon is reachable
+                        until docker info > /dev/null 2>&1; do
+                            echo "Waiting for Docker sidecar..."
                             sleep 2
-                            COUNT=$((COUNT + 1))
                         done
 
+                        echo "Building ${ECR_REPO}:${TAG}..."
                         docker build \
                             --build-arg APP_VERSION=${TAG} \
-                            -t ${ECR_REPO}:${TAG} \
-                            -t ${ECR_REPO}:latest .
+                            --tag ${ECR_REPO}:${TAG} \
+                            --tag ${ECR_REPO}:latest .
                     '''
                 }
             }
@@ -150,9 +159,10 @@ spec:
                     sh '''
                         aws ecr get-login-password --region ${AWS_REGION} | \
                         docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-                        
+
                         docker push ${ECR_REPO}:${TAG}
                         docker push ${ECR_REPO}:latest
+                        echo "✅ Image successfully pushed to ECR"
                     '''
                 }
             }
@@ -161,29 +171,37 @@ spec:
         stage('Update GitOps Manifests') {
             when { 
                 allOf { 
-                    expression { !params.DRY_RUN }
-                    branch 'main'
+                    expression { params.DRY_RUN == false }
+                    // Fix: Check for both 'main' and 'origin/main'
+                    anyOf {
+                        branch 'main'
+                        expression { env.GIT_BRANCH == 'origin/main' }
+                        expression { env.BRANCH_NAME == 'main' }
+                    }
                 }
             }
             steps {
                 container('tools') {
                     withCredentials([usernamePassword(credentialsId: 'github-credentials', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
                         sh '''
-                            wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-                            chmod +x /usr/local/bin/yq
-
+                            # Clone Manifests Repo
+                            rm -rf manifests
                             git clone https://${GIT_USER}:${GIT_TOKEN}@${MANIFESTS_REPO#https://} manifests
-                            cd manifests
+                            cd manifests/
                             
                             git config user.email "jenkins@ci.local"
                             git config user.name "Jenkins CI"
 
-                            #yq e ".image.tag = \\"${TAG}\\"" -i ${HELM_CHART_PATH}/values.yaml
-                            #yq e ".image.tag = \"${TAG}\"" -i ${HELM_CHART_PATH}/values.yaml
-                            sed -i "s|^  tag:.*|  tag: \"${TAG}\"|" ${HELM_CHART_PATH}/values.yaml
-                            
+                            # SED FIX: Dynamically update the tag line in values.yaml
+                            # Matches "  tag: " at the start of the line and replaces everything after
+                            sed -i "s|^  tag:.*|  tag: \\"${TAG}\\"|" ${HELM_CHART_PATH}/values.yaml
+
+                            echo "Verified Change in values.yaml:"
+                            grep "tag:" ${HELM_CHART_PATH}/values.yaml
+
+                            # Commit and Push
                             git add .
-                            git commit -m "chore: update ${APP_NAME} to ${TAG} [skip ci]"
+                            git commit -m "chore: deploy ${APP_NAME} ${TAG} [skip ci]"
                             git push origin ${MANIFESTS_BRANCH}
                         '''
                     }
@@ -194,15 +212,18 @@ spec:
         stage('ArgoCD Sync & Verify') {
             when { 
                 allOf { 
-                    expression { !params.DRY_RUN }
-                    branch 'main'
+                    expression { params.DRY_RUN == false }
+                    anyOf {
+                        branch 'main'
+                        expression { env.GIT_BRANCH == 'origin/main' }
+                    }
                 }
             }
             steps {
                 container('tools') {
                     sh '''
-                        # Minimal verification loop
-                        echo "Verifying ArgoCD deployment..."
+                        echo "Verifying deployment health..."
+                        # Wait for Kubernetes to pull the new image and stabilize
                         kubectl rollout status deployment/${APP_NAME} -n python-app --timeout=300s
                     '''
                 }
@@ -218,9 +239,15 @@ spec:
                         sh 'docker system prune -f || true'
                     }
                 } catch (Exception e) {
-                    echo "Cleanup failed: ${e.message}"
+                    echo "Post-build cleanup skipped: ${e.message}"
                 }
             }
+        }
+        success {
+            echo "✅ Build #$BUILD_NUMBER finished successfully!"
+        }
+        failure {
+            echo "❌ Build #$BUILD_NUMBER failed. Check the logs for details."
         }
     }
 }
