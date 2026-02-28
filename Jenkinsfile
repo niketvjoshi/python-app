@@ -87,7 +87,7 @@ spec:
             steps {
                 container('tools') {
                     sh '''
-                        apk add --no-cache aws-cli git curl wget gcc musl-dev python3-dev linux-headers
+                        apk add --no-cache aws-cli git curl wget gcc musl-dev python3-dev linux-headers docker-cli
                         pip install --no-cache-dir -r app/requirements.txt
                     '''
                 }
